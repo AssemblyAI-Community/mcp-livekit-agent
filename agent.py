@@ -104,19 +104,19 @@ async def entrypoint(ctx: JobContext):
 
 
     livekit_tools = await build_livekit_tools(server)
-    lk_agent = Agent(
+    agent = Agent(
         instructions="You are a friendly voice assistant specialized in interacting with Supabase databases.",
         tools=livekit_tools,
     )
 
     session = AgentSession(
-        vad=silero.VAD.load(),
-        stt=assemblyai.STT(),
+        vad=silero.VAD.load(min_silence_duration=0.1),
+        stt=assemblyai.STT(word_boost = ["Supabase"]),
         llm=openai.LLM(model="gpt-4o"),
         tts=openai.TTS(voice="ash"),
     )
 
-    await session.start(agent=lk_agent, room=ctx.room)
+    await session.start(agent=agent, room=ctx.room)
     await session.generate_reply(instructions="Greet the user and offer to help them with their data in Supabase")
 
     @ctx._on_shutdown
