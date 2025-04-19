@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, List, Callable
+from typing import Any, List, Callable, Optional, get_origin
+
 import inspect
 
 from dotenv import load_dotenv
@@ -31,6 +32,28 @@ def _py_type(schema: dict) -> Any:
     if t == "array":
         return List[_py_type(schema.get("items", {}))]
     return Any
+
+
+def schema_to_google_docstring(description: str, schema: dict) -> str:
+    """
+    Generate a Google‑style docstring Args section from a description and a JSON schema.
+    """
+    props = schema["properties"]
+    required = set(schema.get("required", []))
+    lines = [description, "Args:"]
+    for name, prop in props.items():
+        # map JSON‐Schema types to Python
+        t = prop["type"]
+        if t == "array":
+            item_t = prop["items"]["type"]
+            py_type = f"List[{item_t.capitalize()}]"
+        else:
+            py_type = t.capitalize()
+        if name not in required:
+            py_type = f"Optional[{py_type}]"
+        desc = prop.get("description", "")
+        lines.append(f"    {name} ({py_type}): {desc}")
+    return "\n".join(lines)
 
 
 async def build_livekit_tools(server) -> List[Callable]:
@@ -76,10 +99,10 @@ async def build_livekit_tools(server) -> List[Callable]:
             proxy.__signature__ = inspect.Signature(sig_params)
             proxy.__annotations__ = ann
             proxy.__name__ = tool_def.name
-            proxy.__doc__ = tool_def.description or ""
+            proxy.__doc__ = schema_to_google_docstring(tool_def.description or "", tool_def.parameters_json_schema)
             return function_tool(proxy)
 
-        tools.append(make_proxy())  # factory runs *now*, variables frozen
+        tools.append(make_proxy())  # factory runs with frozen variables
 
     return tools
 
@@ -102,7 +125,6 @@ async def entrypoint(ctx: JobContext):
 
     await server.__aenter__()
 
-
     livekit_tools = await build_livekit_tools(server)
     agent = Agent(
         instructions="You are a friendly voice assistant specialized in interacting with Supabase databases.",
@@ -111,7 +133,7 @@ async def entrypoint(ctx: JobContext):
 
     session = AgentSession(
         vad=silero.VAD.load(min_silence_duration=0.1),
-        stt=assemblyai.STT(word_boost = ["Supabase"]),
+        stt=assemblyai.STT(word_boost=["Supabase"]),
         llm=openai.LLM(model="gpt-4o"),
         tts=openai.TTS(voice="ash"),
     )

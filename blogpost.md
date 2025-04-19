@@ -165,17 +165,9 @@ Function calling allows your agent to leverage external tools to complete specif
 
 Without tools, an agent's capabilities remain limited to its pre-trained knowledge and conversational skills. With tools, your agent becomes truly useful. It gets the ability to check databases, call APIs, control devices, or perform any programmatic action you enable.
 
-To standardize how AI agents interact with tools, Anthropic introduced the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/introduction), an open specification for communication between language models and external services. MCP defines a consistent interface that allows tools to be used across different AI services and platforms.
+Traditionally, developers define the logic behind these tools, specifying how AI models interact with external services. The [Model Context Protocol (MCP)](https://modelcontextprotocol.io/introduction), introduced by Anthropic, shifts this responsibility from developers to service providers. MCP offers an open, standardized method for external services to define their interactions with language models. This simplifies integration and ensures consistent tool usage.
 
-The core benefit of MCP is interoperability. Rather than building tools specific to each AI platform (OpenAI, Anthropic, etc.), developers can build once using MCP and make their tools available universally. This is particularly valuable in the rapidly evolving AI landscape.
-
-At its core, it provides a standardized way for:
-- Language models to request specific actions from external services
-- External services to provide structured data and capabilities to AI systems
-- Applications to mediate these interactions in a consistent, predictable way
-
-
-For our voice agent application, MCP's function calling capabilities are particularly important. When a user makes a request, the LLM can determine which external tool is needed, formulate a standardized request with the proper parameters, and then process the structured response.
+In our voice agent application, MCP will ensure the model can effectively select the appropriate external tool, formulate structured requests, and handle responses seamlessly.
 
 
 ### Supabase and MCP
@@ -184,7 +176,7 @@ MCP is rapidly gaining traction across the AI industry and major tech corps like
 
 [Supabase](https://supabase.com/), the popular open-source Firebase alternative, recently launched their own official MCP server implementation. This makes their powerful database and authentication services directly available to AI agents through a standardized interface.
 
-Here are some examples of what you can ask your agent to do with Supabase:
+Here are some examples of what you can ask your agent to do via Supabase MCP:
 
 **Query data with natural language:**
 "Show me all customers who signed up in the last month and have spent over $100."
@@ -219,19 +211,12 @@ Add your Supabase access token to your `.env` file:
 SUPABASE_ACCESS_TOKEN=your_access_token_here
 ```
 
-Now, let's modify our agent code to incorporate Supabase's MCP server and make those tools available to our agent:
-
-TODO: Consider not writing the whole code first but rather add small chunks and explain them.
-
+Now, let's enhance our agent code to integrate Supabase's MCP server and expose its powerful database tools to our voice assistant. Below is the complete implementation, which we'll then break down and explain in detail:
 ```python
 from __future__ import annotations
+import json, os, inspect
+from typing import Any, List, Callable, Optional, get_origin
 
-import json
-import os
-import inspect
-from typing import Any, List, Callable
-
-from dotenv import load_dotenv
 from livekit.agents import (
     Agent,
     AgentSession,
@@ -243,6 +228,8 @@ from livekit.agents import (
 )
 from livekit.plugins import assemblyai, openai, silero
 from pydantic_ai.mcp import MCPServerStdio
+
+from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -257,6 +244,28 @@ def _py_type(schema: dict) -> Any:
     if t == "array":
         return List[_py_type(schema.get("items", {}))]
     return Any
+
+
+def schema_to_google_docstring(description: str, schema: dict) -> str:
+    """
+    Generate a Google‑style docstring Args section from a description and a JSON schema.
+    """
+    props = schema["properties"]
+    required = set(schema.get("required", []))
+    lines = [description, "Args:"]
+    for name, prop in props.items():
+        # map JSON‐Schema types to Python
+        t = prop["type"]
+        if t == "array":
+            item_t = prop["items"]["type"]
+            py_type = f"List[{item_t.capitalize()}]"
+        else:
+            py_type = t.capitalize()
+        if name not in required:
+            py_type = f"Optional[{py_type}]"
+        desc = prop.get("description", "")
+        lines.append(f"    {name} ({py_type}): {desc}")
+    return "\n".join(lines)
 
 
 async def build_livekit_tools(server) -> List[Callable]:
@@ -302,18 +311,16 @@ async def build_livekit_tools(server) -> List[Callable]:
             proxy.__signature__ = inspect.Signature(sig_params)
             proxy.__annotations__ = ann
             proxy.__name__ = tool_def.name
-            proxy.__doc__ = tool_def.description or ""
+            proxy.__doc__ = schema_to_google_docstring(tool_def.description or "", tool_def.parameters_json_schema)
             return function_tool(proxy)
 
-        tools.append(make_proxy())  # factory runs *now*, variables frozen
+        tools.append(make_proxy())  # factory runs with frozen variables
 
     return tools
-
 
 async def entrypoint(ctx: JobContext):
     await ctx.connect()
 
-    # Initialize the Supabase MCP server
     server = MCPServerStdio(
         "npx",
         args=[
@@ -323,22 +330,18 @@ async def entrypoint(ctx: JobContext):
             os.environ["SUPABASE_ACCESS_TOKEN"],
         ],
     )
-    
+
     await server.__aenter__()
 
-    # Get tools from MCP server and convert them to LiveKit function tools
     livekit_tools = await build_livekit_tools(server)
-
-    # Create agent with Supabase tools
     agent = Agent(
         instructions="You are a friendly voice assistant specialized in interacting with Supabase databases.",
         tools=livekit_tools,
     )
 
-    # Setup the session with all components
     session = AgentSession(
-        vad=silero.VAD.load(),
-        stt=assemblyai.STT(word_boost=["Supabase"]),  # Improve recognition of specific terms
+        vad=silero.VAD.load(min_silence_duration=0.1),
+        stt=assemblyai.STT(word_boost=["Supabase"]),
         llm=openai.LLM(model="gpt-4o"),
         tts=openai.TTS(voice="ash"),
     )
@@ -346,7 +349,6 @@ async def entrypoint(ctx: JobContext):
     await session.start(agent=agent, room=ctx.room)
     await session.generate_reply(instructions="Greet the user and offer to help them with their data in Supabase")
 
-    # Clean up on shutdown
     @ctx._on_shutdown
     async def on_shutdown(ctx: JobContext):
         await server.__aexit__(None, None, None)
@@ -375,7 +377,7 @@ server = MCPServerStdio(
 )
 ```
 
-This code initializes Supabase's MCP server using Node.js (via `npx`). We're using the `pydantic_ai.mcp` library which provides a Python interface to MCP servers. The `MCPServerStdio` class creates a subprocess that communicates with the MCP server using standard input/output protool.
+This code initializes Supabase's MCP server using Node.js (via `npx`). We're using the `pydantic_ai` library which provides a Python interface to MCP servers. The `MCPServerStdio` class creates a subprocess that communicates with the MCP server using standard input/output protool.
 
 #### 2. Converting MCP Tools to LiveKit Function Tools
 
@@ -390,6 +392,33 @@ The `build_livekit_tools` function performs the crucial task of bridging between
 
 This conversion is necessary because while LiveKit natively supports tools through its function calling system (using Python functions decorated with `@function_tool`), it doesn't yet have native MCP support. MCP defines tools using JSON schemas, so we need to fetch these tools from the MCP server and create corresponding LiveKit-compatible function tools to make them available to our agent.
 
+To give an example, here's the `list_tables` tool definition from the MCP server:
+```python
+ ToolDefinition(name='list_tables', description='Lists all tables in a schema.', parameters_json_schema={'type': 'object', 'properties': {'project_id': {'type': 'string'}, 'schemas': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Optional list of schemas to include. Defaults to all schemas.'}}, 'required': ['project_id'], 'additionalProperties': False, '$schema': 'http://json-schema.org/draft-07/schema#'}, outer_typed_dict_key=None, strict=None)
+
+
+```
+
+And here's the equivalent LiveKit function tool which will get generated with `build_livekit_tools`:
+```python
+@function_tool
+async def list_tables(
+    context: RunContext,
+    project_id: str,
+    schemas: List[str] = None
+):
+    """
+    Lists all tables in a schema.
+    Args:
+        project_id (String): 
+        schemas (Optional[List[String]]): Optional list of schemas to include. Defaults to all schemas.
+    """
+    result = await server.call_tool("list_tables", arguments={"project_id": project_id, "schemas": schemas})
+    txt = result.content[0].text
+    return json.loads(txt)
+```
+
+
 #### 3. Using the Tools in the Agent
 
 Once converted, we pass the tools to our agent:
@@ -400,14 +429,11 @@ agent = Agent(
     tools=livekit_tools,
 )
 ```
+We launch and keep the MCP server running in the background with `await server.__aenter__()`.
 
 We've also updated the agent's instructions to indicate that it specializes in Supabase database interactions.
 
-#### 4. Optimizing STT for Domain-Specific Terms
-
-Notice we've added `word_boost=["Supabase"]` to the AssemblyAI STT configuration. This improves the accuracy of transcription for technical terms specific to our domain.
-
-#### 5. Cleanup on Shutdown
+#### 4. Cleanup on Shutdown
 
 Finally, we've added a shutdown handler to properly close the MCP server:
 
@@ -420,13 +446,39 @@ async def on_shutdown(ctx: JobContext):
 
 ## Testing Our Database Voice Agent
 
-With this enhanced agent ready, you can now have conversations with it about your Supabase data. For example:
+With this enhanced agent ready, you can now have conversations with it about your Supabase projects.
+To run the agent in development mode, you can use the following command:
+```bash
+# 1. Create a virtual environment
+python3 -m venv venv
 
-- "Show me all users in the database"
-- "How many products do we have in stock?"
-- "Create a new record for customer John Smith with email john.smith@example.com"
+# 2. Activate it
+# Mac/Linux
+source venv/bin/activate
 
-The agent will use the appropriate Supabase tools to fulfill these requests and respond conversationally. The exact tools available will depend on your Supabase setup and permissions.
+# Windows
+# .\venv\Scripts\activate.bat
+
+# 3. Install your packages inside the venv
+pip install livekit-agents livekit-plugins-assemblyai livekit-plugins-openai livekit-plugins-silero python-dotenv "pydantic-ai-slim[openai,mcp]"
+
+# 4. Run your agent
+python agent.py dev
+```
+If all credentials are set up correctly, you should be able to talk to your agent in the LiveKit Agents Playground and interact with your Supabase projects.
+
+For example, imagine you have a project named `grocery-store`, with a table called products, and a table called sales. You can ask the agent questions like:
+
+- "How many users logged in last month in my `grocery-store` project?"
+- "Who is the user with most sales?"
+- "Create a `top_products` table with the 10 most sold products"
+- "What is the average revenue per month?
+- "Create a new record for customer John Smith in the sales table, who bought the product with id 123"
+
+The agent will use the appropriate Supabase tools to fulfill these requests and respond conversationally. 
+
+## Conclusion
+
+In this post, we've built a voice agent that can interact with Supabase databases using LiveKit's agent framework and MCP. We've covered the setup, the code, and the testing process.
 
 
-TODO: Write conclusions.
