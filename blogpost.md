@@ -438,7 +438,7 @@ We've also updated the agent's instructions to indicate that it specializes in S
 Finally, we've added a shutdown handler to properly close the MCP server:
 
 ```python
-@ctx._on_shutdown
+@ctx.add_shutdown_callback
 async def on_shutdown(ctx: JobContext):
     await server.__aexit__(None, None, None)
     print("Shutting down MCP server")
