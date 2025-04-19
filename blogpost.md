@@ -1,4 +1,4 @@
-# How to build a voice agent with OpenAI and LiveKit Agents
+# How to build a voice agent with OpenAI, LiveKit Agents, and MCP
 
 
 [LiveKit](https://livekit.io/) is a powerful open-source platform for building real-time audio and video applications. Building upon WebRTC, it simplifies the complexities of real-time communication. Recently, LiveKit introduced the [Agents Framework](https://github.com/livekit/agents), enabling developers to integrate AI agents directly into their real-time sessions. These agents can process media streams, interact with external services, and add sophisticated AI capabilities to applications.
@@ -35,7 +35,7 @@ Building a LiveKit application with an agent involves three main components:
 For the server and frontend, we can reuse the setup from our previous STT tutorial using **LiveKit Cloud** and the **LiveKit Agents Playground**.
 
 **1. Set up LiveKit Cloud:**
-   *   Follow the steps in this [previous article](https://www.assemblyai.com/blog/livekit-realtime-speech-to-text/#step-1---set-up-a-livekit-server) to create a LiveKit Cloud project.
+   *   Follow the steps in this [previous article](https://www.assemblyai.com/blog/livekit-realtime-speech-to-text/#step-1-set-up-a-livekit-server) to create a LiveKit Cloud project.
    *   Create a `.env` file in your project directory and store your `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET`.
 
    ```dotenv
@@ -59,22 +59,22 @@ For the server and frontend, we can reuse the setup from our previous STT tutori
 **3. Set up Python Environment:**
    *   Create and activate a virtual environment:
      ```bash
-     # Mac/Linux
-     python3 -m venv venv
-     . venv/bin/activate
+        # 1. Create a virtual environment
+        python3 -m venv venv
 
-     # Windows
-     # python -m venv venv
-     # .\venv\Scripts\activate.bat
-     ```
-   *   Install necessary libraries:
-     ```bash
-     pip install #TODO
-     # Add TTS libraries if needed, e.g., pip install livekit-plugins-silero
+        # 2. Activate it
+        # Mac/Linux
+        source venv/bin/activate
+
+        # Windows
+        # .\venv\Scripts\activate.bat
+
+        # 3. Install your packages inside the venv
+        pip install livekit-agents livekit-plugins-assemblyai livekit-plugins-openai livekit-plugins-silero python-dotenv "pydantic-ai-slim[openai,mcp]"
      ```
 
 **4. Use the Agents Playground:**
-   *   Navigate to [agents-playground.livekit.io](https://agents-playground.livekit.io/) and connect it to your LiveKit Cloud project as shown in the [previous guide](https://www.assemblyai.com/blog/livekit-realtime-speech-to-text/#step-2---set-up-the-livekit-agents-playground). This will serve as our frontend.
+   *   Navigate to [agents-playground.livekit.io](https://agents-playground.livekit.io/) and connect it to your LiveKit Cloud project as shown in the [previous guide](https://www.assemblyai.com/blog/livekit-realtime-speech-to-text/#step-2-set-up-the-livekit-agents-playground). This will serve as our frontend.
 
 With the basic setup complete, we can now focus on building the core logic of our voice agent.
 
@@ -125,7 +125,7 @@ if __name__ == "__main__":
     cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
 ```
 
-As you can see, this setup is lightweight and flexible. We are now using OpenAI's GPT-4o for the language understanding part, but if you feel like trying a different LLM (maybe something like Claude Sonnet 3.7 or a fine-tuned open-source model) swapping it out is pretty straightforward. Same story with the text-to-speech and speech-to-text components: while OpenAI's TTS does the job, you can easily switch to something like ElevenLabs if you want more natural voices or custom voice cloning. For Speech-to-Text, we load our own AssemblyAI LiveKit plugin, which takes care of the real-time transcription. 
+As you can see, this setup is lightweight and flexible. We are now using OpenAI's GPT-4o for the language understanding part, but if you feel like trying a different LLM (maybe something like Claude Sonnet 3.7 or a fine-tuned open-source model) swapping it out is pretty straightforward. Same story with the Text-to-Speech and Speech-to-Text components: while OpenAI's TTS does the job, you can easily switch to something like ElevenLabs if you want more natural voices or custom voice cloning. For Speech-to-Text, we load our own AssemblyAI LiveKit plugin, which takes care of the real-time transcription. 
 
 
 #### Decomposing Our Minimal Example
@@ -349,7 +349,7 @@ async def entrypoint(ctx: JobContext):
     await session.start(agent=agent, room=ctx.room)
     await session.generate_reply(instructions="Greet the user and offer to help them with their data in Supabase")
 
-    @ctx._on_shutdown
+    @ctx.add_shutdown_callback
     async def on_shutdown(ctx: JobContext):
         await server.__aexit__(None, None, None)
         print("Shutting down MCP server")
@@ -449,20 +449,6 @@ async def on_shutdown(ctx: JobContext):
 With this enhanced agent ready, you can now have conversations with it about your Supabase projects.
 To run the agent in development mode, you can use the following command:
 ```bash
-# 1. Create a virtual environment
-python3 -m venv venv
-
-# 2. Activate it
-# Mac/Linux
-source venv/bin/activate
-
-# Windows
-# .\venv\Scripts\activate.bat
-
-# 3. Install your packages inside the venv
-pip install livekit-agents livekit-plugins-assemblyai livekit-plugins-openai livekit-plugins-silero python-dotenv "pydantic-ai-slim[openai,mcp]"
-
-# 4. Run your agent
 python agent.py dev
 ```
 If all credentials are set up correctly, you should be able to talk to your agent in the LiveKit Agents Playground and interact with your Supabase projects.
@@ -479,6 +465,12 @@ The agent will use the appropriate Supabase tools to fulfill these requests and 
 
 ## Conclusion
 
-In this post, we've built a voice agent that can interact with Supabase databases using LiveKit's agent framework and MCP. We've covered the setup, the code, and the testing process.
+In this post, we've explored building a sophisticated voice agent leveraging LiveKit's powerful agent framework, AssemblyAI's real-time speech transcription, and OpenAI's advanced language models. By integrating MCP and Supabase, we equipped our agent with robust database interaction capabilities, opening up endless possibilities for practical, voice-driven applications.
+
+With this setup, you're now prepared to create intelligent, interactive agents that don't just converse naturally, but actively assist with real-world tasks. The flexibility offered by these tools empowers you to easily swap components or enhance functionality, making it a solid foundation for future innovation. 
+
+For those interested in exploring different backend options, check out the comprehensive [Model Context Protocol Servers repository](https://github.com/modelcontextprotocol/servers), which contains a variety of ready-to-use servers which let you interact with different platforms and services. You can easily adapt the code to use any server you like.
+
+Now, it's your turn to expand upon this agent and bring your unique ideas to life!
 
 

@@ -141,10 +141,10 @@ async def entrypoint(ctx: JobContext):
     await session.start(agent=agent, room=ctx.room)
     await session.generate_reply(instructions="Greet the user and offer to help them with their data in Supabase")
 
-    @ctx._on_shutdown
+    @ctx.add_shutdown_callback
     async def on_shutdown(ctx: JobContext):
-        await server.__aexit__(None, None, None)
         print("Shutting down MCP server")
+        await server.__aexit__(None, None, None)
 
 
 if __name__ == "__main__":
