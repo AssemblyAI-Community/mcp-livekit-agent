@@ -1,4 +1,4 @@
-# [Voice Agent with OpenAI, LiveKit Agents, and MCP]((https://www.assemblyai.com/blog/mcp-voice-agent-openai-livekit)
+# [Voice Agent with OpenAI, LiveKit Agents, and MCP](https://www.assemblyai.com/blog/mcp-voice-agent-openai-livekit)
 
 A voice agent implementation that uses LiveKit Agents Framework to create an intelligent conversational assistant with database capabilities.
 
